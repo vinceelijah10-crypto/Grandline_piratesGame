@@ -418,83 +418,6 @@ class FloatingText:
                              int(self.y - cam_y)))
 
 
-# ===================== SPRITE EXPLOSION =====================
-# Frame order: Explosion1mini → Explosion2 … Explosion10
-_EXPLOSION_FRAMES = []   # loaded once on first use
-
-def _load_explosion_frames():
-    global _EXPLOSION_FRAMES
-    if _EXPLOSION_FRAMES:
-        return
-    # Ordered frame list (1mini is the tiny spark at frame 0)
-    names = (
-        ['Explosion1mini.png'] +
-        [f'Explosion{i}.png' for i in range(2, 11)]
-    )
-    # Search same folder as script, then uploads
-    base_dirs = [
-        os.path.dirname(os.path.abspath(__file__)),
-        '/mnt/user-data/uploads',
-    ]
-    loaded = []
-    for name in names:
-        surf = None
-        for d in base_dirs:
-            path = os.path.join(d, name)
-            if os.path.exists(path):
-                try:
-                    img = pygame.image.load(path).convert_alpha()
-                    surf = img
-                    break
-                except Exception as e:
-                    print(f"⚠ Could not load {path}: {e}")
-        if surf is None:
-            # Fallback: orange circle
-            sz = 32
-            surf = pygame.Surface((sz, sz), pygame.SRCALPHA)
-            pygame.draw.circle(surf, (*ORANGE, 200), (sz//2, sz//2), sz//2)
-        loaded.append(surf)
-    _EXPLOSION_FRAMES = loaded
-    print(f"✅ Loaded {len(_EXPLOSION_FRAMES)} explosion frames")
-
-class SpriteExplosion:
-    """
-    Plays the 10-frame explosion sprite sheet at a world position.
-    Normal enemies: scale=56.  Boss: scale=120.
-    """
-    def __init__(self, x, y, scale=56, fps=18):
-        _load_explosion_frames()
-        self.x      = float(x)
-        self.y      = float(y)
-        self.scale  = scale
-        self.fps    = fps
-        self.frame  = 0.0
-        self.done   = False
-        # Pre-scale all frames to the requested size
-        self._frames = [
-            pygame.transform.scale(f, (scale, scale))
-            for f in _EXPLOSION_FRAMES
-        ]
-
-    def update(self, dt):
-        if self.done:
-            return False
-        self.frame += self.fps * dt
-        if self.frame >= len(self._frames):
-            self.done = True
-            return False
-        return True
-
-    def draw(self, surface, cam_x=0, cam_y=0):
-        if self.done:
-            return
-        idx  = min(int(self.frame), len(self._frames) - 1)
-        img  = self._frames[idx]
-        sx   = int(self.x - cam_x) - self.scale // 2
-        sy   = int(self.y - cam_y) - self.scale // 2
-        surface.blit(img, (sx, sy))
-
-
 # ===================== SCREEN SHAKE =====================
 shake_timer = 0.0
 shake_intensity = 0.0
@@ -1836,7 +1759,6 @@ def pirate_adventure_game():
     powerups       = []
     particles      = []
     floating_texts = []
-    explosions     = []       # sprite explosions
 
     # Wave system
     current_wave        = 1
