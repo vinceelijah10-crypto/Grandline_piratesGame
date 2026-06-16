@@ -2,6 +2,7 @@ import pygame
 import os
 import random
 import math
+from pathlib import Path
 
 # =========================
 # SETUP
@@ -15,8 +16,19 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Pirates Adventure — Enhanced")
 
 # Load assets
-background = pygame.image.load('everything.jpg') if os.path.exists('everything.jpg') else None
-icon = pygame.image.load('swords.png') if os.path.exists('swords.png') else None
+BASE_DIR = Path(__file__).resolve().parent
+IMAGE_DIR = BASE_DIR / 'assets' / 'images'
+AUDIO_DIR = BASE_DIR / 'assets' / 'audio'
+FONT_DIR = BASE_DIR / 'assets' / 'fonts'
+EXPLOSION_DIR = IMAGE_DIR / 'explosions'
+
+def asset_path(folder, filename):
+    return str(folder / filename)
+
+background_path = asset_path(IMAGE_DIR, 'everything.jpg')
+icon_path = asset_path(IMAGE_DIR, 'swords.png')
+background = pygame.image.load(background_path) if os.path.exists(background_path) else None
+icon = pygame.image.load(icon_path) if os.path.exists(icon_path) else None
 if icon:
     pygame.display.set_icon(icon)
 
@@ -163,7 +175,7 @@ def music_play_menu(fade_ms=800):
     if not music_on:
         return
     # Check for user-supplied files first
-    user_menu = "MusicBGMenu.mp3"
+    user_menu = asset_path(AUDIO_DIR, "MusicBGMenu.mp3")
     track = user_menu if _os.path.exists(user_menu) else _MENU_WAV
     if _current_track == 'menu':
         return
@@ -184,8 +196,8 @@ def music_play_battle(fade_ms=600):
     # Priority: uploaded pirate tavern track → MusicBGPirate.mp3 → fallback WAV
     candidates = [
         '/mnt/user-data/uploads/magiksolo-pirate-tavern-full-version-167990.mp3',
-        'magiksolo-pirate-tavern-full-version-167990.mp3',
-        'MusicBGPirate.mp3',
+        asset_path(AUDIO_DIR, 'magiksolo-pirate-tavern-full-version-167990.mp3'),
+        asset_path(AUDIO_DIR, 'MusicBGPirate.mp3'),
         _BATTLE_WAV,
     ]
     track = next((c for c in candidates if _os.path.exists(c)), _BATTLE_WAV)
@@ -251,8 +263,8 @@ def _create_powerup_sound():
     n = int(sr * dur)
     return _make_sfx([0.45 * math.sin(2*math.pi*(440+520*(i/n))*(i/sr)) for i in range(n)])
 
-HOVER_FILE = "Hover.mp3"
-CLICK_FILE = "Click.Wav"
+HOVER_FILE = asset_path(AUDIO_DIR, "Hover.mp3")
+CLICK_FILE = asset_path(AUDIO_DIR, "Click.Wav")
 hover_sound     = _create_hover_sound()     if not os.path.exists(HOVER_FILE) else pygame.mixer.Sound(HOVER_FILE)
 click_sound     = _create_click_sound()     if not os.path.exists(CLICK_FILE) else pygame.mixer.Sound(CLICK_FILE)
 explosion_sound = _create_explosion_sound()
@@ -267,7 +279,7 @@ def play_sound(sound):
 music_play_menu(fade_ms=0)
 
 # ===================== FONTS =====================
-font_path = "PressStart2P-Regular.ttf"
+font_path = asset_path(FONT_DIR, "PressStart2P-Regular.ttf")
 if os.path.exists(font_path):
     title_font   = pygame.font.Font(font_path, 48)
     button_font  = pygame.font.Font(font_path, 30)
@@ -320,6 +332,21 @@ def load_image(image_name, scale=None):
         surf = pygame.Surface(scale if scale else (50, 50), pygame.SRCALPHA)
         surf.fill(DARK_WOOD)
         return surf
+
+def _explosion_sort_key(path):
+    digits = ''.join(ch for ch in path.stem if ch.isdigit())
+    return int(digits) if digits else 0
+
+def load_explosion_frames():
+    frames = []
+    for frame_path in sorted(EXPLOSION_DIR.glob('Explosion*.png'), key=_explosion_sort_key):
+        try:
+            frames.append(pygame.image.load(str(frame_path)).convert_alpha())
+        except pygame.error as exc:
+            print(f"Explosion frame skipped: {frame_path.name} ({exc})")
+    return frames
+
+EXPLOSION_FRAMES = load_explosion_frames()
 
 # ===================== ANIMATED TITLE BORDER =====================
 def draw_animated_title_border(window, rect, time):
@@ -416,6 +443,36 @@ class FloatingText:
         surf.set_alpha(int(255 * alpha))
         surface.blit(surf, (int(self.x - cam_x) - surf.get_width()//2,
                              int(self.y - cam_y)))
+
+class Explosion:
+    def __init__(self, x, y, size, frame_time=0.045):
+        self.x = float(x)
+        self.y = float(y)
+        self.size = int(size)
+        self.frame_time = frame_time
+        self.age = 0.0
+        self.max_life = max(frame_time * max(1, len(EXPLOSION_FRAMES)), 0.35)
+
+    def update(self, dt):
+        self.age += dt
+        return self.age < self.max_life
+
+    def draw(self, surface, cam_x=0, cam_y=0):
+        if not EXPLOSION_FRAMES:
+            alpha = max(0.0, 1.0 - self.age / self.max_life)
+            radius = max(4, int(self.size * (1.2 + (1 - alpha) * 0.8)))
+            pygame.draw.circle(surface, (255, 180, 40),
+                               (int(self.x - cam_x), int(self.y - cam_y)), radius)
+            pygame.draw.circle(surface, (255, 60, 20),
+                               (int(self.x - cam_x), int(self.y - cam_y)), max(2, radius // 2))
+            return
+
+        frame_idx = min(int(self.age / self.frame_time), len(EXPLOSION_FRAMES) - 1)
+        frame = EXPLOSION_FRAMES[frame_idx]
+        boom_size = max(28, self.size)
+        scaled = pygame.transform.scale(frame, (boom_size, boom_size))
+        rect = scaled.get_rect(center=(int(self.x - cam_x), int(self.y - cam_y)))
+        surface.blit(scaled, rect)
 
 
 # ===================== SCREEN SHAKE =====================
@@ -679,9 +736,8 @@ def _get_sea_tile():
         return _SEA_TILE_DIM
     # Search order: same folder as script → uploads folder → fallback
     candidates = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Sea_BG.png'),
+        asset_path(IMAGE_DIR, 'Sea_BG.png'),
         '/mnt/user-data/uploads/Sea_BG.png',
-        'Sea_BG.png',
     ]
     raw = None
     for path in candidates:
@@ -1758,6 +1814,7 @@ def pirate_adventure_game():
     enemy_cannons  = []       # enemy shots
     powerups       = []
     particles      = []
+    active_explosions = []
     floating_texts = []
 
     # Wave system
@@ -1865,6 +1922,10 @@ def pirate_adventure_game():
     def spawn_particles(x, y, color, count=12, speed=120, life=0.6):
         for _ in range(count):
             particles.append(Particle(x, y, color, speed, life, size=4))
+
+    def spawn_explosion(x, y, enemy_size, is_boss=False):
+        scale = 4.0 if is_boss else 3.2
+        active_explosions.append(Explosion(x, y, enemy_size * scale))
 
     def try_spawn_powerup(x, y):
         if random.random() < 0.25:  # 25% drop chance
@@ -2191,6 +2252,7 @@ def pirate_adventure_game():
                         player_gold += gold_gain
                         xp_gain = enemy["xp_value"]
                         player_xp += xp_gain
+                        spawn_explosion(enemy["x"], enemy["y"], enemy["size"], enemy.get("is_boss", False))
                         spawn_particles(enemy["x"], enemy["y"], GOLD, count=20, speed=150, life=0.9)
                         play_sound(explosion_sound)
                         trigger_shake(8 if enemy.get("is_boss") else 4, 0.3)
@@ -2268,6 +2330,7 @@ def pirate_adventure_game():
                 spawn_particles(island["x"], island["y"], GOLD, count=20, speed=100, life=0.8)
 
         # ---- PARTICLES & TEXTS ----
+        active_explosions = [boom for boom in active_explosions if boom.update(dt)]
         particles      = [p for p in particles      if p.update(dt)]
         floating_texts = [ft for ft in floating_texts if ft.update(dt)]
 
@@ -2327,6 +2390,10 @@ def pirate_adventure_game():
         # Powerups
         for pu in powerups:
             draw_powerup(draw_surf, pu, game_time, camera_x - sx, camera_y - sy)
+
+        # Explosions
+        for boom in active_explosions:
+            boom.draw(draw_surf, camera_x - sx, camera_y - sy)
 
         # Particles
         for p in particles:
